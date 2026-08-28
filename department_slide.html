@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lexicographic Multi-Preference Routing — ACM SIGSPATIAL '26</title>
+<link rel="stylesheet" href="style.css">
+
+<script>
+window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']]
+  },
+  chtml: {
+    scale: 1.0
+  }
+};
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+</head>
+
+<body>
+
+<!-- 1. TITLE -->
+<section class="slide title-slide">
+  <div class="eyebrow">ACM SIGSPATIAL '26 · Applications Track</div>
+
+  <h1>
+    <span style="color:brown;">Lexicographic FreqA*</span><br>
+    Lexicographic Multi-Preference Routing for Priority-Aware Urban Navigation
+  </h1>
+
+  <p class="lead muted" style="margin-top:20px;max-width:900px;">
+    Priority-aware urban navigation from open municipal &amp; real-time data
+  </p>
+
+  <div class="authors">
+    <strong>Abdallah Abdelwahab · Ahmad Alsharif · Mahmoud Mahmoud</strong><br>
+    <span class="muted">Department of Computer Science, University of Alabama</span>
+  </div>
+
+  <div class="venue">github.com/UA-AI-Robustness/lexicographic-freqastar</div>
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">01</div>
+</section>
+
+
+<!-- 2. THE PROBLEM -->
+<section class="slide">
+  <div class="eyebrow">The Problem</div>
+  <h2>Navigation gives you a single objective<br>and a few on/off switches.</h2>
+
+  <div class="grow row" style="margin-top:30px;align-items:center;">
+    <div class="col">
+      <p style="margin-bottom:22px;">
+        Every major service folds distance and traffic into one
+        <strong>travel-time</strong> estimate, then exposes a handful of binary toggles:
+      </p>
+
+      <div>
+        <span class="chip h">avoid tolls</span>
+        <span class="chip h">avoid highways</span>
+        <span class="chip h">avoid ferries</span>
+      </div>
+
+      <p style="margin-top:28px;">
+        You <em>cannot</em> ask for safer streets, fewer traffic signals, or the roads drivers actually take;
+        and you cannot say <strong>which matters more</strong> when they conflict.
+      </p>
+    </div>
+
+    <div class="col">
+      <div class="card">
+        <h3 style="color:var(--route);">Real people have priorities</h3>
+        <p style="margin-top:14px;">A parent at night wants the <strong>safest</strong> route above all.</p>
+        <p style="margin-top:10px;">A courier wants the <strong>fastest</strong> route that still dodges congestion.</p>
+        <p style="margin-top:10px;">A cyclist wants to avoid <strong>signal-heavy</strong> corridors.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">02</div>
+</section>
+
+
+<!-- 3. THE KEY IDEA -->
+<section class="slide center">
+  <div class="eyebrow">Our Insight</div>
+
+  <div class="big-quote" style="max-width:1050px;">
+    People express what they want as a <span class="accent">priority order</span>,<br>
+    &ldquo;<span class="accent-b">safety first</span>, then <span class="accent-g">the usual way</span>&rdquo;,<br>
+    far more naturally than as a vector of weights.
+  </div>
+
+  <p class="lead" style="margin-top:44px;max-width:980px;">
+    So we let users <strong>rank</strong> their criteria, and we return one route that
+    <strong>honors that ranking</strong>; never trading a higher-priority preference for a lower one.
+  </p>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">03</div>
+</section>
+
+
+<!-- 4. WHY IT'S HARD -->
+<section class="slide">
+  <div class="eyebrow">Two Obstacles</div>
+  <h2>Why this isn't already solved</h2>
+
+  <div class="grow row" style="margin-top:34px;align-items:stretch;">
+    <div class="col card">
+      <div class="mono" style="color:var(--route);font-size:34px;font-weight:600;">01</div>
+      <h3 style="margin-top:10px;">The criteria aren't on the map</h3>
+      <p style="margin-top:14px;">
+        Safety, popularity, congestion, and signal delay live in
+        <strong>heterogeneous external data</strong> — crash records, trip histories, live feeds,
+        and map tags — each in its own units. They must be put on common ground.
+      </p>
+    </div>
+
+    <div class="col card">
+      <div class="mono" style="color:var(--route);font-size:34px;font-weight:600;">02</div>
+      <h3 style="margin-top:10px;">Honor an order — fast</h3>
+      <p style="margin-top:14px;">
+        Prior work either collapses criteria into a <strong>weighted sum</strong>,
+        which can silently override the top preference, or returns a
+        <strong>Pareto menu</strong> that the user must choose from.
+        <span style="color:var(--route);font-weight:600;">
+          Neither gives one priority-respecting route at interactive speed.
+        </span>
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">04</div>
+</section>
+
+
+<!-- 5. SYSTEM OVERVIEW -->
+<section class="slide">
+  <div class="eyebrow">System Overview</div>
+  <h2>Four open data sources → one priority-ordered route</h2>
+
+  <div class="grow imgwrap" style="margin-top:22px;">
+    <img src="images/system_architecture.jpg" alt="System architecture">
+  </div>
+
+  <p class="caption">
+    Offline: convert four urban data sources into an annotated road graph + precompute tile heuristics.
+    Online: the user's priority order and optional live traffic feed the search.
+  </p>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">05</div>
+</section>
+
+
+<!-- 6. PREFERENCES ON A COMMON SCALE -->
+<section class="slide">
+  <div class="eyebrow">Preferences on a Common Scale</div>
+  <h2>Each field steers the route away from what it penalizes</h2>
+
+  <div class="grow row" style="margin-top:18px;">
+    <div class="col" style="flex:1.25;">
+      <div class="grid-2x2">
+
+        <figure class="grid-cell">
+          <div class="imgwrap">
+            <img src="images/heatmap_crashes_raster_page-0001.jpg" alt="Crash-exposure field over Manhattan">
+          </div>
+          <figcaption><span class="accent-b">Crash exposure</span>: clustered on a few corridors</figcaption>
+        </figure>
+
+        <figure class="grid-cell">
+          <div class="imgwrap">
+            <img src="images/heatmap_frequency_raster_page-0001.jpg" alt="Historical-usage field over Manhattan">
+          </div>
+          <figcaption><span class="accent">Historical usage</span>: follows the avenues</figcaption>
+        </figure>
+
+        <figure class="grid-cell">
+          <div class="imgwrap">
+            <img src="images/heatmap_traffic_raster_page-0001.jpg" alt="Signal-density field over Manhattan">
+          </div>
+          <figcaption><span class="accent-g">Signal density</span>: dense and widespread</figcaption>
+        </figure>
+
+      </div>
+    </div>
+
+    <div class="col center" style="flex:.85;">
+      <p style="margin-bottom:16px;">
+        Every source becomes a score in <span class="mono">(0,1]</span>.
+        A route score is the product of its <strong>edge and node factors</strong> along the path.
+      </p>
+
+      <div class="card" style="border-left:4px solid var(--safety);">
+        <p style="font-size:20px;margin:0;">
+          Ask for <span class="accent-b"><strong>safety-first</strong></span>, and the search is pushed
+          <strong>away from crash-dense corridors</strong>; the route physically avoids the red zones.
+        </p>
+      </div>
+
+      <p style="margin-top:16px;">
+        The same holds for congestion and signals: the scoring is what makes the route
+        <strong>dodge what you're trying to avoid</strong>.
+      </p>
+
+      <p style="margin-top:14px;" class="muted">
+        The fields are distinct, so different orderings give genuinely different routes.
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">06</div>
+</section>
+<section class="slide">
+  <div class="eyebrow">Preferences on a Common Scale</div>
+  <h2>Each field steers the route away from what it penalizes</h2>
+
+  <div class="grow row" style="margin-top:18px;">
+    <div class="col" style="flex:1.25;">
+      <div class="grid-2x2">
+
+        <figure class="grid-cell">
+          <div class="imgwrap">
+            <img src="images/zoomgoo-image (1).webp" alt="Crash-exposure field over Manhattan">
+          </div>
+          <figcaption><span class="accent-b">Crash exposure</span>: clustered on a few corridors</figcaption>
+        </figure>
+
+        <figure class="grid-cell">
+          <div class="imgwrap">
+            <img src="images/zoomgoo-image (3).webp" alt="Historical-usage field over Manhattan">
+          </div>
+          <figcaption><span class="accent">Historical usage</span>: follows the avenues</figcaption>
+        </figure>
+
+        <figure class="grid-cell">
+          <div class="imgwrap">
+            <img src="images/zoomgoo-image (2).webp" alt="Signal-density field over Manhattan">
+          </div>
+          <figcaption><span class="accent-g">Signal density</span>: dense and widespread</figcaption>
+        </figure>
+
+      </div>
+    </div>
+
+    <div class="col center" style="flex:.85;">
+      <p style="margin-bottom:16px;">
+        Every source becomes a score in <span class="mono">(0,1]</span>.
+        A route score is the product of its <strong>edge and node factors</strong> along the path.
+      </p>
+
+      <div class="card" style="border-left:4px solid var(--safety);">
+        <p style="font-size:20px;margin:0;">
+          Ask for <span class="accent-b"><strong>safety-first</strong></span>, and the search is pushed
+          <strong>away from crash-dense corridors</strong>; the route physically avoids the red zones.
+        </p>
+      </div>
+
+      <p style="margin-top:16px;">
+        The same holds for congestion and signals: the scoring is what makes the route
+        <strong>dodge what you're trying to avoid</strong>.
+      </p>
+
+      <p style="margin-top:14px;" class="muted">
+        The fields are distinct, so different orderings give genuinely different routes.
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">06</div>
+</section>
+
+
+<!-- 7. EDGE AND NODE FACTORS -->
+<section class="slide">
+  <div class="eyebrow">From Urban Data to Preference Scores</div>
+  <h2>Each preference uses different edge and node factors</h2>
+
+  <div class="grow center" style="margin-top:24px;">
+    <table>
+      <tr>
+        <th>Preference</th>
+        <th>Edge Factor</th>
+        <th>Node Factor</th>
+      </tr>
+
+      <tr>
+        <td><strong style="color:var(--route);">Historical</strong></td>
+        <td>\(P_{\mathrm{freq}}((u,v)\mid T_d)\)</td>
+        <td>\(1\)</td>
+      </tr>
+
+      <tr>
+        <td><strong style="color:var(--safety);">Safety</strong></td>
+        <td>\(P_{\mathrm{crash\_edge}}((u,v)\mid u)\)</td>
+        <td>\(P_{\mathrm{crash\_node}}(v)\)</td>
+      </tr>
+
+      <tr>
+        <td><strong style="color:var(--traffic);">Traffic</strong></td>
+        <td>\(P_{\mathrm{traffic}}((u,v)\mid u)\)</td>
+        <td>\(P_{\mathrm{tl}}(v)\)</td>
+      </tr>
+    </table>
+
+    <p class="lead" style="margin-top:30px;">
+      Edge factors describe the <strong>road segment</strong>;
+      node factors capture penalties at the <strong>intersection entered</strong>.
+    </p>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">07</div>
+</section>
+
+
+<!-- 8. BUILDING THE FACTORS -->
+<section class="slide">
+  <div class="eyebrow">Depth · Building the Factors</div>
+  <h2>How each data source becomes a preference factor</h2>
+
+  <div class="grow row" style="margin-top:20px;align-items:stretch;gap:10px;">
+
+    <!-- SAFETY -->
+    <div class="col card" style="border-top:4px solid var(--safety);">
+      <h3 style="color:var(--safety);">Safety</h3>
+
+      <p style="font-size:18px;margin-top:8px;">
+        Mid-block crashes penalize edges; intersection crashes penalize nodes.
+      </p>
+
+      <div class="paper-eqn" style="font-size:16px;margin-top:12px;">
+        \[
+        \mathrm{safety}(u,v)
+        =
+        \frac{1}{1+c(u,v)+\beta k(u,v)}
+        \]
+      </div>
+
+      <p style="font-size:16px;margin-top:4px;">
+        Normalize over outgoing edges of \(u\):
+      </p>
+
+      <div class="paper-eqn" style="font-size:15px;margin-top:6px;">
+        \[
+        P_{\mathrm{crash\_edge}}((u,v)\mid u)
+        =
+        \frac{\mathrm{safety}(u,v)}
+        {\sum_{w\in N(u)}\mathrm{safety}(u,w)}
+        \]
+      </div>
+
+      <div class="paper-eqn" style="font-size:15px;margin-top:6px;">
+        \[
+        P_{\mathrm{crash\_node}}(v)
+        =
+        \frac{1}{1+c_{\mathrm{int}}(v)+\beta k_{\mathrm{int}}(v)}
+        \]
+      </div>
+
+      <p class="muted" style="font-size:14px;margin-top:6px;">
+        \(c\): crashes, \(k\): fatal crashes, \(\beta=5\)
+      </p>
+    </div>
+
+
+    <!-- HISTORICAL -->
+    <div class="col card" style="border-top:4px solid var(--route);">
+      <h3 style="color:var(--route);">Historical</h3>
+
+      <p style="font-size:18px;margin-top:8px;">
+        Frequency table records how often routes toward destination tile \(T_d\) used each edge.
+      </p>
+
+      <div class="paper-eqn" style="font-size:16px;margin-top:16px;">
+        \[
+        P_{\mathrm{freq}}((u,v)\mid T_d)
+        =
+        \frac{\mathrm{EdgeCount}(u,v,T_d)}
+        {\mathrm{TileTotal}(T_d)}
+        \]
+      </div>
+
+      <p style="font-size:16px;margin-top:12px;">
+        Node factor:
+      </p>
+
+      <div class="paper-eqn" style="font-size:16px;margin-top:4px;">
+        \[
+        p_{\mathrm{historical}}^{\mathrm{node}}(v)=1
+        \]
+      </div>
+
+      <p class="muted" style="font-size:14px;margin-top:8px;">
+        Destination tiles provide stable statistics while keeping lookup \(O(1)\).
+      </p>
+    </div>
+
+
+    <!-- TRAFFIC -->
+    <div class="col card" style="border-top:4px solid var(--traffic);">
+      <h3 style="color:var(--traffic);">Traffic</h3>
+
+      <p style="font-size:18px;margin-top:8px;">
+        Faster roads get higher edge scores; controlled intersections receive node penalties.
+      </p>
+
+      <div class="paper-eqn" style="font-size:16px;margin-top:14px;">
+        \[
+        \mathrm{ratio}_{\mathrm{live}}(u,v)
+        =
+        \frac{\mathrm{currentSpeed}(u,v)}
+        {\mathrm{freeFlowSpeed}(u,v)}
+        \]
+      </div>
+
+      <p style="font-size:16px;margin-top:8px;">
+        Normalize over outgoing edges of \(u\) to obtain
+        \(P_{\mathrm{traffic}}((u,v)\mid u)\).
+      </p>
+
+      <div style="margin-top:12px;font-size:15px;line-height:1.6;">
+        <strong>Node factor \(P_{\mathrm{tl}}(v)\):</strong><br>
+        traffic signal \(=0.50\)<br>
+        stop sign \(=0.70\)<br>
+        yield \(=0.85\)<br>
+        crossing \(=0.90\)<br>
+        uncontrolled \(=1.00\)
+      </div>
+    </div>
+
+  </div>
+
+  <p style="margin-top:16px;font-size:20px;">
+    Each preference produces its <strong>own route score</strong>.
+    Historical, safety, and traffic scores remain separate in the lexicographic vector;
+    they are <strong>not multiplied together</strong>.
+  </p>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">08</div>
+</section>
+
+
+<!-- 9. FROM FACTORS TO ROUTE SELECTION -->
+<section class="slide">
+  <div class="eyebrow">From Factors to Route Selection</div>
+  <h2>Transition score → route score → best route</h2>
+
+  <div class="grow row" style="margin-top:22px;align-items:stretch;gap:10px;">
+
+    <div class="col card" style="border-top:4px solid var(--route);">
+      <h3>1 · Transition score</h3>
+
+      <div class="paper-eqn" style="font-size:19px;margin-top:18px;">
+        \[
+        P_{\sigma_j}((u,v))
+        =
+        p_{\sigma_j}^{\mathrm{edge}}(u,v)
+        \cdot
+        p_{\sigma_j}^{\mathrm{node}}(v)
+        \]
+      </div>
+
+      <p style="font-size:17px;margin-top:14px;">
+        One traversal combines the road-segment score with the node penalty.
+      </p>
+    </div>
+
+
+    <div class="col card" style="border-top:4px solid var(--safety);">
+      <h3>2 · Route score</h3>
+
+      <div class="paper-eqn" style="font-size:17px;margin-top:18px;">
+        \[
+        P_{\sigma_j}(L)
+        =
+        \prod_{k=0}^{r-1}
+        p_{\sigma_j}^{\mathrm{edge}}(v_k,v_{k+1})
+        \cdot
+        p_{\sigma_j}^{\mathrm{node}}(v_{k+1})
+        \]
+      </div>
+
+      <p style="font-size:17px;margin-top:14px;">
+        Higher \(P_{\sigma_j}(L)\) means a better route for preference \(\sigma_j\).
+      </p>
+    </div>
+
+
+    <div class="col card" style="border-top:4px solid var(--traffic);">
+      <h3>3 · Best route</h3>
+
+      <div class="paper-eqn" style="font-size:17px;margin-top:12px;">
+        \[
+        \mathbf{P}(L)
+        =
+        [P_{\sigma_1}(L),\ldots,P_{\sigma_m}(L)]
+        \]
+      </div>
+
+      <div class="paper-eqn" style="font-size:17px;margin-top:4px;">
+        \[
+        L^{*}
+        =
+        \underset{L\in\mathrm{Paths}(s\rightarrow d)}
+        {\arg\max_{\mathrm{lex}}}
+        \mathbf{P}(L)
+        \]
+      </div>
+
+      <p style="font-size:17px;margin-top:8px;">
+        Compare the highest-priority preference first; ties move to the next one.
+      </p>
+    </div>
+
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">09</div>
+</section>
+
+
+<!-- 10. WHY EPSILON EXISTS -->
+<section class="slide">
+  <div class="eyebrow">Depth · Why the Tolerance Exists</div>
+  <h2>Why introduce the tolerance \(\varepsilon\)?</h2>
+
+  <div class="grow row" style="margin-top:24px;align-items:stretch;">
+
+    <div class="col card" style="border-left:4px solid var(--route);">
+      <h3 style="color:var(--route);">The problem</h3>
+      <p style="margin-top:12px;">
+        Scores are real-valued products, so two routes are
+        <strong>almost never exactly equal</strong> on the top preference.
+        Strict priority works, but lower-priority preferences rarely get a chance to act.
+      </p>
+    </div>
+
+    <div class="col card" style="border-left:4px solid var(--traffic);">
+      <h3 style="color:var(--traffic);">The fix: relative tolerance \(\varepsilon\)</h3>
+
+      <p style="margin-top:12px;">
+        Treat two scores as <strong>tied</strong> when they fall within a relative tolerance,
+        and let the <em>next</em> preference break the tie.
+      </p>
+
+      <div class="paper-eqn" style="margin-top:18px;font-size:22px;">
+        \[
+        \frac{|a-b|}{\max(a,b)}
+        \leq
+        \varepsilon
+        \quad\Rightarrow\quad
+        \text{tied}
+        \;\rightarrow\;
+        \text{next preference}
+        \]
+      </div>
+
+      <p class="muted" style="font-size:15px;margin-top:10px;">
+        \(a\) and \(b\) are two candidate scores on the current preference.
+      </p>
+    </div>
+  </div>
+
+  <p class="lead" style="margin-top:22px;">
+    \(\varepsilon=0\) recovers strict priority. A small \(\varepsilon\) lets lower preferences act on near-ties
+    <strong>without</strong> overturning a clear winner.
+  </p>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">10</div>
+</section>
+
+
+<!-- 11. THE METHOD -->
+<section class="slide">
+  <div class="eyebrow">The Method · Lexicographic FreqA*</div>
+  <h2>Two ideas: a priority-ordered search, made fast</h2>
+
+  <div class="grow row" style="margin-top:20px;align-items:center;">
+    <div class="col" style="flex:1.05;">
+
+      <div class="card" style="margin-bottom:16px;">
+        <h3><span class="mono" style="color:var(--route);">1 ·</span> Lexicographic search</h3>
+        <p style="margin-top:10px;font-size:20px;">
+          Each route carries a <strong>score vector</strong>; one component per preference.
+          Compare on the top preference first; break near-ties within \(\varepsilon\) by the next.
+          Priorities never multiply, so a lower one cannot overrule a higher one.
+        </p>
+      </div>
+
+      <div class="card">
+        <h3><span class="mono" style="color:var(--route);">2 ·</span> Tile-graph heuristic</h3>
+        <p style="margin-top:10px;font-size:20px;">
+          A coarse tile grid gives an <strong>optimistic estimate</strong> of the best score to the destination;
+          an admissible A* heuristic that focuses the search. This is where the 80% node reduction comes from.
+        </p>
+      </div>
+    </div>
+
+    <div class="col center" style="flex:.95;">
+      <div class="imgwrap" style="height:300px;">
+        <img src="images/tile_graph.jpg" alt="Road graph to tile abstraction">
+      </div>
+      <p class="caption">
+        The road graph coarsened to a tile graph; heuristic precomputed once per destination,
+        reused for any ordering.
+      </p>
+    </div>
+  </div>
+
+  <p style="margin-top:12px;font-size:22px;">
+    <strong>Provably lexicographically optimal at \(\varepsilon=0\)</strong>
+    <span class="mono muted">(proofs in paper)</span>.
+  </p>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">11</div>
+</section>
+
+
+<!-- 12. PSEUDOCODE -->
+<section class="slide">
+  <div class="eyebrow">Algorithm · Lexicographic FreqA*</div>
+  <h2>How the priority-aware search works</h2>
+
+  <div class="grow row" style="margin-top:18px;align-items:stretch;gap:30px;">
+
+    <div class="col algo-box" style="flex:1.35; height: 500px; width: fit-content; text-align: center;">
+      <img src="images/alg.png" style="height: 100%;" alt="">
+    </div>
+
+    <div class="col" style="flex:1;">
+
+      <div class="card" style="border-top:4px solid var(--safety);margin-bottom:14px;">
+        <h3>Score accumulation</h3>
+        <p style="font-size:17px;margin-top:8px;">
+          \(\vec g(v)\) stores the accumulated
+          <strong>preference-score vector</strong> from \(s\) to \(v\).
+        </p>
+      </div>
+
+      <div class="card" style="border-top:4px solid var(--traffic);margin-bottom:14px;">
+        <h3>Tile heuristic</h3>
+        <p style="font-size:17px;margin-top:8px;">
+          \(\vec h(v)\) gives an optimistic estimate of the remaining preference scores.
+        </p>
+        <div class="paper-eqn" style="font-size:17px;margin-top:8px;">
+          \[
+          \vec f(v)=\vec g(v)\odot\vec h(v)
+          \]
+        </div>
+      </div>
+
+      <div class="card" style="border-top:4px solid var(--route);">
+        <h3>\(\varepsilon\)-lex relaxation</h3>
+        <p style="font-size:17px;margin-top:8px;">
+          OPEN uses a <strong>strict lexicographic order</strong>;
+          \(\varepsilon\) is applied when deciding whether a newly reached vector improves the stored one.
+        </p>
+      </div>
+
+    </div>
+  </div>
+
+  <p class="caption" style="text-align:right;margin-top:10px;font-size:15px;">
+    \(\odot\) denotes component-wise multiplication. The search maximizes preference scores.
+  </p>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">12</div>
+</section>
+
+
+<!-- 13. RESULT 1 -->
+<section class="slide">
+  <div class="eyebrow">Result 1 · The Order Matters</div>
+  <h2>Different priorities → materially different routes</h2>
+
+  <div class="grow row" style="margin-top:10px;">
+    <div class="col" style="flex:1.25;">
+      <div class="grid-2x2">
+
+        <figure class="grid-cell">
+          <div class="imgwrap"><img src="images/map_focal_crashes_raster (2)_page-0001.jpg" alt="Safety-first route"></div>
+          <figcaption><span class="accent-b" style="font-weight: bold;">Safety</span>: crashes per route</figcaption>
+        </figure>
+
+        <figure class="grid-cell">
+          <div class="imgwrap"><img src="images/map_focal_frequency_raster (1)_page-0001.jpg" alt="Historical-first route"></div>
+          <figcaption><span class="accent" style="font-weight: bold;">Popularity</span>: popular segments</figcaption>
+        </figure>
+
+        <figure class="grid-cell">
+          <div class="imgwrap"><img src="images/map_focal_traffic_raster (1)_page-0001.jpg" alt="Offline-traffic route"></div>
+          <figcaption><span class="accent-y" style="font-weight: bold;">Offline traffic</span>: signals per route</figcaption>
+        </figure>
+
+        <figure class="grid-cell">
+          <div class="imgwrap"><img src="images/map_focal_online_traffic_raster (1)_page-0001.jpg" alt="Live-traffic route"></div>
+          <figcaption><span class="accent-g" style="font-weight: bold;">Live traffic</span>: live congestion</figcaption>
+        </figure>
+
+      </div>
+    </div>
+
+    <div class="col center" style="flex:.85;">
+      <p>
+        Same O–D pair under three offline preference-first routes and one live-traffic route.
+      </p>
+
+      <div class="card" style="margin-top:14px;border-left:4px solid var(--route);">
+        <p style="margin:0;">
+          The three offline routes are almost <strong>edge-disjoint</strong>
+          (pairwise overlap ≤ 2.6%).
+        </p>
+      </div>
+
+      <p style="margin-top:14px;" class="muted">
+        The order is not a re-weighting; it produces a fundamentally different route.
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">13</div>
+</section>
+
+
+<!-- 14. RESULT 2 -->
+<section class="slide">
+  <div class="eyebrow">Result 2 · Fast and Optimal</div>
+  <h2>Interactive speed, zero quality loss</h2>
+
+  <div class="grow row" style="margin-top:24px;align-items:center;">
+    <div class="col" style="flex:.8;">
+      <div style="display:flex;gap:40px;flex-wrap:wrap;">
+        <div>
+          <div class="stat">0.42<span style="font-size:34px;"> ms</span></div>
+          <div class="stat-label">FreqA* query<br>single preference</div>
+        </div>
+
+        <div>
+          <div class="stat blue">80<span style="font-size:34px;">%</span></div>
+          <div class="stat-label">fewer node<br>expansions</div>
+        </div>
+
+        <div>
+          <div class="stat green">100<span style="font-size:34px;">%</span></div>
+          <div class="stat-label">FreqScore<br>matches optimum</div>
+        </div>
+      </div>
+
+      <p style="margin-top:30px;">
+        A <strong>97.8× speedup</strong> over the same-objective baseline
+        while matching the provably optimal route on <strong>every one</strong> of 197 queries.
+      </p>
+    </div>
+
+    <div class="col">
+      <table>
+        <tr><th>Method</th><th style="text-align:right;">Nodes</th><th style="text-align:right;">Time</th></tr>
+        <tr><td>Dijkstra</td><td class="num">2348.8</td><td class="num">4.07</td></tr>
+        <tr><td>A*</td><td class="num">741.3</td><td class="num">2.07</td></tr>
+        <tr><td>FreqDijkstra</td><td class="num">1249.1</td><td class="num">41.0</td></tr>
+        <tr class="us"><td>FreqA* (ours)</td><td class="num">249.6</td><td class="num">0.42</td></tr>
+        <tr class="us"><td>Lex-FreqA* (ours)</td><td class="num">249.3</td><td class="num">1.13</td></tr>
+      </table>
+
+      <p class="caption" style="text-align:left;">
+        256×256 grid, 197 queries. Time in ms.
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">14</div>
+</section>
+
+
+<!-- 15. RESULT 3 -->
+<section class="slide">
+  <div class="eyebrow">Result 3 · Live Traffic</div>
+  <h2>The same query reroutes as congestion shifts</h2>
+
+  <div class="grow imgwrap" style="margin-top:20px;">
+    <img src="images/live_traffic.png" alt="Live traffic routing at two times">
+  </div>
+
+  <p class="caption">
+    Traffic-first query at two times using the TomTom live feed.
+    Routes keep to free-flowing edges and avoid congested corridors; re-evaluated live, not cached.
+    Per-query search stays at <strong>2.2 ms</strong>.
+  </p>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">15</div>
+</section>
+
+
+<!-- 16. RESULT 4 -->
+<section class="slide">
+  <div class="eyebrow">Result 4 · The Cost of Preference</div>
+  <h2>Honoring a preference has a price and a knob</h2>
+
+  <div class="grow row" style="margin-top:22px;">
+    <div class="col center">
+      <p style="margin-bottom:16px;">
+        <strong>Preference-first</strong> routes are longer than the shortest path;
+        a real, interpretable cost, not inefficiency.
+      </p>
+
+      <table>
+        <tr><th>Route</th><th style="text-align:right;">vs shortest</th></tr>
+        <tr><td>Historical-first</td><td class="num">+20.3%</td></tr>
+        <tr><td>Safety-first</td><td class="num">+60.1%</td></tr>
+        <tr><td>Traffic-first</td><td class="num">+63.5%</td></tr>
+      </table>
+    </div>
+
+    <div class="col center">
+      <h3 style="color:var(--route);">Optional distance budget</h3>
+      <p style="margin:12px 0;">
+        Cap the detour at \(\beta\) × shortest path. One feasibility check, no change to the search.
+      </p>
+
+      <table>
+        <tr><th>\(\beta\)</th><th style="text-align:right;">Detour</th><th style="text-align:right;">Safety</th></tr>
+        <tr><td>∞</td><td class="num">+62.0%</td><td class="num">100.0%</td></tr>
+        <tr class="hi"><td>2.0</td><td class="num">+40.5%</td><td class="num">85.3%</td></tr>
+        <tr><td>1.5</td><td class="num">+24.4%</td><td class="num">63.4%</td></tr>
+        <tr><td>1.25</td><td class="num">+13.0%</td><td class="num">52.4%</td></tr>
+      </table>
+
+      <p class="caption" style="text-align:left;">
+        \(\beta=2.0\) nearly halves the detour while keeping 85.3% of the safety score.
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">16</div>
+</section>
+
+
+<!-- 17. LIMITATIONS -->
+<section class="slide">
+  <div class="eyebrow">Scope &amp; Honesty</div>
+  <h2>What we claim and what we don't</h2>
+
+  <div class="grow" style="margin-top:24px;">
+    <ul class="bullets">
+      <li>
+        <strong>Synthetic historical corpus.</strong>
+        Popularity is a stand-in; quality is measured against our own field, not real driver choices.
+        Real trajectories drop in without changing the search.
+      </li>
+
+      <li>
+        <strong>Crash exposure, not per-vehicle risk.</strong>
+        Counts are not traffic-normalized, so the safety detour is likely an upper bound.
+      </li>
+
+      <li>
+        <strong>One city, bounded priority.</strong>
+        Manhattan's grid; strict priority at \(\varepsilon=0\), bounded at the operating tolerance.
+      </li>
+    </ul>
+
+    <p class="lead" style="margin-top:20px;">
+      <strong>Crucially:</strong> none of this touches the search guarantees or the efficiency results,
+      which hold for any preference field.
+    </p>
+  </div>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">17</div>
+</section>
+
+
+<!-- 18. TAKEAWAY -->
+<section class="slide center">
+  <div class="eyebrow">Takeaway</div>
+
+  <h1 style="font-size:52px;max-width:1050px;">
+    Users should be able to say<br><br>
+    &ldquo;<span class="accent-b">safest</span>, then <span class="accent-g">fastest</span>&rdquo;
+  </h1>
+
+  <p class="lead" style="margin-top:24px;max-width:1000px;">
+    and receive <strong>one route that respects that priority</strong>,
+    rather than a weighted compromise or a menu of alternatives.
+  </p>
+
+  <div style="margin-top:38px;display:flex;gap:24px;width:100%;max-width:1050px;">
+    <div class="card" style="flex:1;">
+      <h3>Priority-aware</h3>
+      <p style="font-size:18px;">Higher-priority preferences cannot be overridden by lower ones.</p>
+    </div>
+
+    <div class="card" style="flex:1;">
+      <h3>Efficient</h3>
+      <p style="font-size:18px;">An admissible tile heuristic makes preference-aware search practical.</p>
+    </div>
+
+    <div class="card" style="flex:1;">
+      <h3>Live-adaptive</h3>
+      <p style="font-size:18px;">The same framework responds directly to changing traffic conditions.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:30px;" class="mono muted">
+    Code &amp; data: github.com/UA-AI-Robustness/lexicographic-freqastar
+  </p>
+
+  <p style="margin-top:8px;font-size:26px;"><strong>Thank you.</strong> &nbsp; Questions?</p>
+
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">18</div>
+</section>
+
+
+<!-- BACKUP · PSEUDOCODE ALTERNATIVE / RELATED WORK -->
+<!-- 
+<section class="slide">
+  <div class="eyebrow">Backup · For Q&amp;A</div>
+  <h2>Selected related work</h2>
+  <div class="grow row" style="margin-top:24px;">
+    <div class="col">
+      <h3 style="margin-bottom:12px;">Multi-objective &amp; learned routing</h3>
+      <p style="font-size:19px;margin:8px 0;">Sarker et al. — RL-based multi-objective route recommendation</p>
+      <p style="font-size:19px;margin:8px 0;">Hung et al. — customizable frequency-guided search</p>
+      <p style="font-size:19px;margin:8px 0;">Liu et al. — driver preferences via inverse RL</p>
+      <p style="font-size:19px;margin:8px 0;">Guo et al.; Tian et al. — learned routes from trajectories</p>
+    </div>
+    <div class="col">
+      <h3 style="margin-bottom:12px;">Multi-criteria &amp; classical</h3>
+      <p style="font-size:19px;margin:8px 0;">Martins — multi-objective shortest paths</p>
+      <p style="font-size:19px;margin:8px 0;">Kriegel et al.; Shekelyan et al. — route-skyline search</p>
+      <p style="font-size:19px;margin:8px 0;">Dijkstra; A*; ALT / CH — classical search</p>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:16px;font-size:18px;">Full citations in the paper.</p>
+  <div class="footer">ACM SIGSPATIAL '26</div>
+  <div class="pagenum">B1</div>
+</section> -->
+
+
+</body>
+</html>
